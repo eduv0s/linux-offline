@@ -7,15 +7,14 @@
 <meta name="description" content="KolibriOS real ejecutándose dentro del navegador con v86.">
 <meta name="theme-color" content="#ffffff">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icons/favicon-32.png" sizes="32x32">
+<link rel="icon" href="icons/favicon-32.png" sizes="32px">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="styles.css">
 <style>
-  /* Interfaz dedicada a KolibriOS: el resto del catálogo queda oculto sin tocar los sistemas. */
   #pack { max-width: 680px; margin: 0 auto; }
   #pack > h1 { font-size: 28px; }
   #pack > .lead { font-size: 15px; }
-  #systems .card:not(:first-child) { display: none !important; }
+  #systems .card:not(:first-child), #mine, #drop, #import-state, .sub, #pack > .foot-note { display: none !important; }
   #systems .card:first-child .card-desc,
   #systems .card:first-child .card-size,
   #systems .card:first-child .tag,
@@ -25,75 +24,42 @@
   #systems .card:first-child .card-name { font-size: 20px; }
   #systems .card:first-child .card-actions { margin-top: 0; }
   #systems .card:first-child [data-act="get"] { font-size: 15px; padding: 11px 18px; }
-  #mine, #drop, #import-state, .sub, #pack > .foot-note { display: none !important; }
   .stage { width: 100%; max-width: none; }
   .stage .screen { min-height: min(72vh, 720px); width: 100%; }
-  .stage .screen-gfx { width: min(100%, 1024px); height: auto; }
-  .stage .vm-actions, .stage .hint { justify-content: center; }
+  .stage .screen-gfx { width: min(100%, 1024px); height: auto; cursor: none !important; }
+  .stage .screen, .stage .screen * { cursor: none !important; }
+  .stage .vm-actions, .stage .hint, .stage .keys { display: none !important; }
+  #consent { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 9999; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid #ddd; border-radius: 14px; background: rgba(255,255,255,.97); box-shadow: 0 8px 30px rgba(0,0,0,.12); font-size: 14px; }
+  #consent button { flex: 0 0 auto; }
+  #consent[hidden] { display: none; }
   @media (max-width: 600px) {
     #pack > h1 { font-size: 24px; }
     .stage .screen { min-height: 65vh; }
+    #consent { flex-direction: column; align-items: stretch; }
   }
 </style>
 </head>
 <body class="vm-page">
-<header class="vm-bar">
-  <strong class="vm-title">KolibriOS</strong>
-  <span id="phase" class="phase">Listo para iniciar</span>
-</header>
-
+<header class="vm-bar"><strong class="vm-title">KolibriOS</strong><span id="phase" class="phase">Listo para iniciar</span></header>
 <main class="vm-main">
   <section id="pack" class="pack">
     <h1>KolibriOS en tu navegador</h1>
     <p class="lead">Ejecuta el KolibriOS original directamente en tu navegador. No se modifica la imagen ni el sistema operativo.</p>
     <ul id="systems" class="systems"></ul>
     <ul id="mine" class="systems"></ul>
-    <label id="drop" class="dropzone" for="file">
-      <b>Arrastra una imagen aquí</b>
-      <span>o pulsa para elegir un archivo · .iso, .img, .bin</span>
-      <input id="file" type="file" accept=".iso,.img,.ima,.vfd,.bin,.raw,.dsk" hidden>
-    </label>
+    <label id="drop" class="dropzone" for="file"><b>Arrastra una imagen aquí</b><span>o pulsa para elegir un archivo · .iso, .img, .bin</span><input id="file" type="file" accept=".iso,.img,.ima,.vfd,.bin,.raw,.dsk" hidden></label>
     <p id="import-state" class="card-state"></p>
   </section>
-
   <section id="stage" class="stage" hidden>
-    <div id="term-wrap" class="term-wrap">
-      <pre id="term" class="term" tabindex="0" aria-label="Terminal de la máquina virtual"></pre>
-      <input id="mobile-input" class="mobile-input" autocomplete="off" autocorrect="off"
-             autocapitalize="off" spellcheck="false" aria-hidden="true">
-    </div>
-
-    <div id="screen" class="screen" hidden>
-      <div class="screen-text"></div>
-      <canvas class="screen-gfx"></canvas>
-    </div>
-
-    <div id="keys" class="keys">
-      <button class="key" data-send="&#9;">Tab</button>
-      <button class="key" data-send="&#27;">Esc</button>
-      <button class="key" data-send="&#3;">Ctrl+C</button>
-      <button class="key" data-send="&#27;[A">▲</button>
-      <button class="key" data-send="&#27;[B">▼</button>
-      <button id="kbd" class="key" type="button">Teclado</button>
-    </div>
-
-    <div class="vm-actions">
-      <button id="save" class="btn ghost small" type="button">Guardar estado</button>
-      <button id="full" class="btn ghost small" type="button" hidden>Pantalla completa</button>
-      <button id="pause" class="btn ghost small" type="button">Pausar</button>
-      <button id="reset" class="btn ghost small" type="button">Reiniciar</button>
-      <button id="close" class="btn ghost small" type="button">Apagar</button>
-    </div>
-
-    <p id="hint" class="hint">Mantén pulsada Esc para salir de KolibriOS.</p>
+    <div id="term-wrap" class="term-wrap"><pre id="term" class="term" tabindex="0" aria-label="Terminal de la máquina virtual"></pre><input id="mobile-input" class="mobile-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-hidden="true"></div>
+    <div id="screen" class="screen" hidden><div class="screen-text"></div><canvas class="screen-gfx"></canvas></div>
+    <div id="keys" class="keys"><button class="key" data-send="&#9;">Tab</button><button class="key" data-send="&#27;">Esc</button><button class="key" data-send="&#3;">Ctrl+C</button><button class="key" data-send="&#27;[A">▲</button><button class="key" data-send="&#27;[B">▼</button><button id="kbd" class="key" type="button">Teclado</button></div>
+    <div class="vm-actions"><button id="save" class="btn ghost small" type="button">Guardar estado</button><button id="full" class="btn ghost small" type="button" hidden>Pantalla completa</button><button id="pause" class="btn ghost small" type="button">Pausar</button><button id="reset" class="btn ghost small" type="button">Reiniciar</button><button id="close" class="btn ghost small" type="button">Apagar</button></div>
+    <p id="hint" class="hint">Pulsa dos veces Q para salir.</p>
   </section>
 </main>
-
-<footer class="vm-foot">
-  <span id="net" class="net"></span>
-  <span>KolibriOS original · ejecutado localmente en el navegador</span>
-</footer>
-
+<footer class="vm-foot"><span id="net" class="net"></span><span>KolibriOS original · ejecutado localmente en el navegador</span></footer>
+<div id="consent" hidden><span>Para recordar tu sesión y no tener que instalar KolibriOS otra vez en este dispositivo, usamos almacenamiento local del navegador (IndexedDB/Cache Storage). No se envía tu progreso a ningún servidor.</span><button id="accept-consent" class="btn primary small" type="button">Aceptar</button></div>
 <script src="vendor/libv86.js"></script>
 <script src="term.js"></script>
 <script src="store.js"></script>
@@ -101,71 +67,37 @@
 <script>
 (function () {
   'use strict';
-
-  var exitTimer = null;
-  var EXIT_HOLD_MS = 800;
-
+  var exitTimer = null, EXIT_HOLD_MS = 800;
   function setupKolibriButton() {
     var card = document.querySelector('#systems .card');
     if (!card) return false;
-
-    var get = card.querySelector('[data-act="get"]');
-    var boot = card.querySelector('[data-act="boot"]');
+    var get = card.querySelector('[data-act="get"]'), boot = card.querySelector('[data-act="boot"]');
     if (!get || !boot || get.dataset.kolibriReady) return true;
-
-    get.dataset.kolibriReady = '1';
-    get.textContent = 'Iniciar KolibriOS';
-    boot.hidden = true;
-
-    // El botón único descarga los archivos la primera vez y arranca automáticamente.
+    get.dataset.kolibriReady = '1'; get.textContent = 'Iniciar KolibriOS'; boot.hidden = true;
     get.addEventListener('click', function () {
       if (get.hidden) return;
       var started = get.dataset.downloadStarted === '1';
       if (!started) {
         get.dataset.downloadStarted = '1';
-        var wait = setInterval(function () {
-          if (get.hidden && !boot.disabled) {
-            clearInterval(wait);
-            boot.click();
-          }
-        }, 150);
+        var wait = setInterval(function () { if (get.hidden && !boot.disabled) { clearInterval(wait); boot.click(); } }, 150);
         setTimeout(function () { clearInterval(wait); }, 180000);
       }
     }, true);
-
     return true;
   }
-
   function holdEsc(e) {
     if (e.key !== 'Escape' || document.getElementById('stage').hidden) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    if (exitTimer === null) {
-      exitTimer = setTimeout(function () {
-        exitTimer = null;
-        var close = document.getElementById('close');
-        if (close) close.click();
-      }, EXIT_HOLD_MS);
-    }
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (exitTimer === null) exitTimer = setTimeout(function () { exitTimer = null; var close = document.getElementById('close'); if (close) close.click(); }, EXIT_HOLD_MS);
   }
-
   function releaseEsc(e) {
     if (e.key !== 'Escape') return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    if (exitTimer !== null) {
-      clearTimeout(exitTimer);
-      exitTimer = null;
-    }
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (exitTimer !== null) { clearTimeout(exitTimer); exitTimer = null; }
   }
-
   document.addEventListener('keydown', holdEsc, true);
   document.addEventListener('keyup', releaseEsc, true);
-
-  var tries = 0;
-  var timer = setInterval(function () {
-    if (setupKolibriButton() || ++tries > 100) clearInterval(timer);
-  }, 50);
+  var tries = 0, timer = setInterval(function () { if (setupKolibriButton() || ++tries > 100) clearInterval(timer); }, 50);
 })();
 </script>
 </body>
