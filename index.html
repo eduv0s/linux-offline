@@ -30,8 +30,8 @@
   #systems .card:first-child [data-act="restore"] { font-size: 15px; padding: 11px 18px; }
   #systems .card:first-child [data-act="restore"] { display: inline-flex !important; }
   .stage { width: 100%; max-width: none; position: relative; }
-  .stage .screen { min-height: min(72vh, 720px); width: 100%; }
-  .stage .screen-gfx { width: min(100%, 1024px); height: auto; cursor: none !important; image-rendering: auto; }
+  .stage .screen { min-height: min(72vh, 720px); width: 100%; contain: layout paint; }
+  .stage .screen-gfx { width: min(100%, 1024px); height: auto; cursor: none !important; image-rendering: auto; will-change: contents; transform: translateZ(0); }
   .stage .screen, .stage .screen * { cursor: none !important; }
   .stage .vm-actions, .stage .hint, .stage .keys { display: none !important; }
   .stage:fullscreen, .stage:-webkit-full-screen { width: 100vw; height: 100vh; max-width: none; margin: 0; padding: 0; background: #000; display: flex; align-items: center; justify-content: center; }
@@ -88,6 +88,25 @@
 <script>
 (function () {
   'use strict';
+
+  /* v86 ya usa su x86->WebAssembly JIT. No hay un ajuste que convierta más
+     RAM en más CPU; KolibriOS necesita muy poca RAM y el snapshot es más caro
+     cuanto más grande es la RAM. Activamos fastboot sin tocar el tamaño de la
+     memoria para no romper sesiones guardadas existentes. */
+  function enableFastBoot(name) {
+    var Original = window[name];
+    if (typeof Original !== 'function' || Original.__kolibriFastBoot) return;
+    function FastV86(opts) {
+      opts = opts || {};
+      if (opts.fastboot === undefined) opts.fastboot = true;
+      return new Original(opts);
+    }
+    FastV86.prototype = Original.prototype;
+    FastV86.__kolibriFastBoot = true;
+    window[name] = FastV86;
+  }
+  enableFastBoot('V86');
+  enableFastBoot('V86Starter');
 
   var exitTimer = null, EXIT_HOLD_MS = 800;
   var lastQ = 0, DOUBLE_Q_MS = 450;
@@ -232,10 +251,23 @@
   document.getElementById('menu-new').addEventListener('click', function () {
     exitMenu.hidden = true;
     closing = false;
-    if (window.kolibriStartFresh) {
-      window.kolibriStartFresh();
-    }
-    setTimeout(fullscreenStage, 150);
+    /* Destruye la instancia actual sin guardar y arranca usando el botón
+       interno de arranque, que omite el estado guardado. La petición de
+       fullscreen se hace dentro del mismo click para conservar el user gesture. */
+    var close = document.getElementById('close');
+    if (close) close.click();
+    stage.hidden = false;
+    fullscreenStage();
+    var tries = 0;
+    var bootTimer = setInterval(function () {
+      var boot = document.querySelector('#systems .card [data-act="boot"]');
+      if (boot && !boot.disabled) {
+        clearInterval(bootTimer);
+        boot.click();
+      } else if (++tries > 80) {
+        clearInterval(bootTimer);
+      }
+    }, 100);
   });
 
   var tries = 0;
