@@ -82,7 +82,7 @@
 
   var exitTimer = null, EXIT_HOLD_MS = 800;
   var lastQ = 0, DOUBLE_Q_MS = 450;
-  var autoStarted = false;
+  var autoStarted = false, closing = false;
 
   function fullscreenStage() {
     var stage = document.getElementById('stage');
@@ -108,12 +108,10 @@
     boot.hidden = true;
 
     get.addEventListener('click', function () {
-      if (get.hidden || autoStarted) return;
+      if (get.hidden || autoStarted || closing) return;
       autoStarted = true;
       var stage = document.getElementById('stage');
       stage.hidden = false;
-      /* Important: requestFullscreen is called directly from the user's click
-         before any asynchronous download work, so the browser accepts it. */
       fullscreenStage();
 
       if (restore && !restore.hidden) {
@@ -137,9 +135,23 @@
     return true;
   }
 
-  function closeNow() {
+  function finishClose() {
     var close = document.getElementById('close');
     if (close) close.click();
+    autoStarted = false;
+    closing = false;
+  }
+
+  function closeNow() {
+    if (closing || document.getElementById('stage').hidden) return;
+    closing = true;
+    var save = document.getElementById('save');
+    if (save && !save.disabled && window.emulator) {
+      save.click();
+      setTimeout(finishClose, 2500);
+    } else {
+      finishClose();
+    }
   }
 
   function doubleQ(e) {
@@ -149,11 +161,7 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       lastQ = 0;
-      /* Save first, then close. This is the normal way to end the session, so
-         the next visit can offer "Continuar sesión" with the latest state. */
-      var save = document.getElementById('save');
-      if (save && !save.disabled) save.click();
-      setTimeout(closeNow, 2500);
+      closeNow();
     } else {
       lastQ = now;
     }
@@ -185,8 +193,8 @@
     consent.hidden = true;
   });
 
-  /* The old 15-second full-RAM save caused visible freezes. The session is now
-     saved when the user exits with QQ; this keeps normal emulation fluid. */
+  /* No hacemos snapshots cada 15 segundos: save_state copia toda la RAM y eso
+     era la causa principal de los parones. El snapshot se hace al salir. */
 
   function updateResumeButton() {
     var restore = document.querySelector('#systems .card [data-act="restore"]');
