@@ -20,19 +20,23 @@
   #systems .card:first-child .tag,
   #systems .card:first-child .bar + .card-state,
   #systems .card:first-child [data-act="boot"],
-  #systems .card:first-child [data-act="restore"],
   #systems .card:first-child [data-act="forget"],
   #systems .card:first-child [data-act="drop"] { display: none !important; }
   #systems .card:first-child { padding: 24px; }
   #systems .card:first-child .card-head { margin-bottom: 12px; }
   #systems .card:first-child .card-name { font-size: 20px; }
   #systems .card:first-child .card-actions { margin-top: 0; }
-  #systems .card:first-child [data-act="get"] { font-size: 15px; padding: 11px 18px; }
+  #systems .card:first-child [data-act="get"],
+  #systems .card:first-child [data-act="restore"] { font-size: 15px; padding: 11px 18px; }
+  #systems .card:first-child [data-act="restore"] { display: inline-flex !important; }
   .stage { width: 100%; max-width: none; }
   .stage .screen { min-height: min(72vh, 720px); width: 100%; }
-  .stage .screen-gfx { width: min(100%, 1024px); height: auto; cursor: none !important; }
+  .stage .screen-gfx { width: min(100%, 1024px); height: auto; cursor: none !important; image-rendering: auto; }
   .stage .screen, .stage .screen * { cursor: none !important; }
   .stage .vm-actions, .stage .hint, .stage .keys { display: none !important; }
+  .stage:fullscreen, .stage:-webkit-full-screen { width: 100vw; height: 100vh; max-width: none; margin: 0; padding: 0; background: #000; display: flex; align-items: center; justify-content: center; }
+  .stage:fullscreen .screen, .stage:-webkit-full-screen .screen { width: 100vw; height: 100vh; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #000; }
+  .stage:fullscreen .screen-gfx, .stage:-webkit-full-screen .screen-gfx { width: auto; height: auto; max-width: 100vw; max-height: 100vh; cursor: none !important; }
   #consent { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 9999; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid #ddd; border-radius: 14px; background: rgba(255,255,255,.97); box-shadow: 0 8px 30px rgba(0,0,0,.12); font-size: 14px; }
   #consent button { flex: 0 0 auto; }
   #consent[hidden] { display: none; }
@@ -72,39 +76,33 @@
 (function () {
   'use strict';
 
-  /* v86 admite hasta 2048 MB según su interfaz actual. KolibriOS es de 32 bits,
-     pero damos al emulador el máximo configurable; el navegador puede limitarlo. */
-  (function maximizeV86Memory() {
-    var Original = window.V86 || window.V86Starter;
-    if (!Original || Original.__maxRamWrapper) return;
-    function MaxRamV86(opts) {
-      opts = opts || {};
-      opts.memory_size = 2048 * 1024 * 1024;
-      return new Original(opts);
-    }
-    MaxRamV86.prototype = Original.prototype;
-    MaxRamV86.__maxRamWrapper = true;
-    window.V86 = MaxRamV86;
-  })();
+  /* KolibriOS no necesita 2 GB. Una RAM enorme hace que v86 reserve y copie
+     mucha más memoria y puede producir tirones al guardar/restaurar. Dejamos
+     que boot.js use su configuración ligera de 128 MB para este sistema. */
 
   var exitTimer = null, EXIT_HOLD_MS = 800;
   var lastQ = 0, DOUBLE_Q_MS = 450;
   var autoStarted = false;
-  var saveTimer = null;
 
   function fullscreenStage() {
     var stage = document.getElementById('stage');
     if (!stage || stage.hidden) return;
     var request = stage.requestFullscreen || stage.webkitRequestFullscreen;
     if (!request || document.fullscreenElement || document.webkitFullscreenElement) return;
-    try { var p = request.call(stage); if (p && p.catch) p.catch(function () {}); } catch (_) {}
+    try {
+      var p = request.call(stage);
+      if (p && p.catch) p.catch(function () {});
+    } catch (_) {}
   }
 
   function setupKolibriButton() {
     var card = document.querySelector('#systems .card');
     if (!card) return false;
-    var get = card.querySelector('[data-act="get"]'), boot = card.querySelector('[data-act="boot"]'), restore = card.querySelector('[data-act="restore"]');
+    var get = card.querySelector('[data-act="get"]');
+    var boot = card.querySelector('[data-act="boot"]');
+    var restore = card.querySelector('[data-act="restore"]');
     if (!get || !boot || get.dataset.kolibriReady) return true;
+
     get.dataset.kolibriReady = '1';
     get.textContent = 'Iniciar KolibriOS';
     boot.hidden = true;
@@ -114,31 +112,29 @@
       autoStarted = true;
       var stage = document.getElementById('stage');
       stage.hidden = false;
+      /* Important: requestFullscreen is called directly from the user's click
+         before any asynchronous download work, so the browser accepts it. */
       fullscreenStage();
+
       if (restore && !restore.hidden) {
         restore.click();
         return;
       }
+
       var started = get.dataset.downloadStarted === '1';
       if (!started) {
         get.dataset.downloadStarted = '1';
         var wait = setInterval(function () {
-          if (get.hidden && !boot.disabled) { clearInterval(wait); boot.click(); }
+          if (get.hidden && !boot.disabled) {
+            clearInterval(wait);
+            boot.click();
+          }
         }, 150);
         setTimeout(function () { clearInterval(wait); }, 180000);
       }
     }, true);
-    return true;
-  }
 
-  function autoRestoreWhenReady() {
-    if (autoStarted) return;
-    var card = document.querySelector('#systems .card');
-    if (!card) return;
-    var get = card.querySelector('[data-act="get"]'), boot = card.querySelector('[data-act="boot"]'), restore = card.querySelector('[data-act="restore"]');
-    if (!get || !boot || !get.hidden || boot.disabled) return;
-    autoStarted = true;
-    if (restore && !restore.hidden) restore.click(); else boot.click();
+    return true;
   }
 
   function closeNow() {
@@ -153,11 +149,11 @@
       e.preventDefault();
       e.stopImmediatePropagation();
       lastQ = 0;
-      /* El guardado automático ya mantiene el progreso. Damos un último intento
-         de guardar antes de apagar para minimizar la pérdida de los últimos cambios. */
+      /* Save first, then close. This is the normal way to end the session, so
+         the next visit can offer "Continuar sesión" with the latest state. */
       var save = document.getElementById('save');
-      if (save) save.click();
-      setTimeout(closeNow, 1500);
+      if (save && !save.disabled) save.click();
+      setTimeout(closeNow, 2500);
     } else {
       lastQ = now;
     }
@@ -178,8 +174,6 @@
   document.addEventListener('keydown', holdEsc, true);
   document.addEventListener('keyup', releaseEsc, true);
 
-  /* Consentimiento: usamos cookie para la preferencia, pero el progreso grande
-     permanece en IndexedDB/Cache Storage, no dentro de una cookie. */
   function hasConsent() {
     return document.cookie.indexOf('kolibri_storage_consent=1') !== -1 || localStorage.getItem('kolibri_storage_consent') === '1';
   }
@@ -191,21 +185,18 @@
     consent.hidden = true;
   });
 
-  /* Guardado automático cada 15 s. El estado completo de v86 se conserva en
-     IndexedDB y se restaura al volver a abrir la web en el mismo dispositivo. */
-  function startAutoSave() {
-    if (saveTimer) return;
-    saveTimer = setInterval(function () {
-      var save = document.getElementById('save'), stage = document.getElementById('stage');
-      if (save && stage && !stage.hidden && !save.disabled && window.emulator) save.click();
-    }, 15000);
+  /* The old 15-second full-RAM save caused visible freezes. The session is now
+     saved when the user exits with QQ; this keeps normal emulation fluid. */
+
+  function updateResumeButton() {
+    var restore = document.querySelector('#systems .card [data-act="restore"]');
+    if (restore && !restore.hidden) restore.textContent = 'Continuar sesión';
   }
-  startAutoSave();
 
   var tries = 0;
   var timer = setInterval(function () {
     var ready = setupKolibriButton();
-    autoRestoreWhenReady();
+    updateResumeButton();
     if (ready || ++tries > 200) clearInterval(timer);
   }, 100);
 })();
