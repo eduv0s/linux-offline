@@ -18,7 +18,11 @@
   #systems .card:first-child .card-desc,
   #systems .card:first-child .card-size,
   #systems .card:first-child .tag,
-  #systems .card:first-child .bar + .card-state { display: none; }
+  #systems .card:first-child .bar + .card-state,
+  #systems .card:first-child [data-act="boot"],
+  #systems .card:first-child [data-act="restore"],
+  #systems .card:first-child [data-act="forget"],
+  #systems .card:first-child [data-act="drop"] { display: none !important; }
   #systems .card:first-child { padding: 24px; }
   #systems .card:first-child .card-head { margin-bottom: 12px; }
   #systems .card:first-child .card-name { font-size: 20px; }
@@ -67,37 +71,143 @@
 <script>
 (function () {
   'use strict';
+
+  /* v86 admite hasta 2048 MB según su interfaz actual. KolibriOS es de 32 bits,
+     pero damos al emulador el máximo configurable; el navegador puede limitarlo. */
+  (function maximizeV86Memory() {
+    var Original = window.V86 || window.V86Starter;
+    if (!Original || Original.__maxRamWrapper) return;
+    function MaxRamV86(opts) {
+      opts = opts || {};
+      opts.memory_size = 2048 * 1024 * 1024;
+      return new Original(opts);
+    }
+    MaxRamV86.prototype = Original.prototype;
+    MaxRamV86.__maxRamWrapper = true;
+    window.V86 = MaxRamV86;
+  })();
+
   var exitTimer = null, EXIT_HOLD_MS = 800;
+  var lastQ = 0, DOUBLE_Q_MS = 450;
+  var autoStarted = false;
+  var saveTimer = null;
+
+  function fullscreenStage() {
+    var stage = document.getElementById('stage');
+    if (!stage || stage.hidden) return;
+    var request = stage.requestFullscreen || stage.webkitRequestFullscreen;
+    if (!request || document.fullscreenElement || document.webkitFullscreenElement) return;
+    try { var p = request.call(stage); if (p && p.catch) p.catch(function () {}); } catch (_) {}
+  }
+
   function setupKolibriButton() {
     var card = document.querySelector('#systems .card');
     if (!card) return false;
-    var get = card.querySelector('[data-act="get"]'), boot = card.querySelector('[data-act="boot"]');
+    var get = card.querySelector('[data-act="get"]'), boot = card.querySelector('[data-act="boot"]'), restore = card.querySelector('[data-act="restore"]');
     if (!get || !boot || get.dataset.kolibriReady) return true;
-    get.dataset.kolibriReady = '1'; get.textContent = 'Iniciar KolibriOS'; boot.hidden = true;
+    get.dataset.kolibriReady = '1';
+    get.textContent = 'Iniciar KolibriOS';
+    boot.hidden = true;
+
     get.addEventListener('click', function () {
-      if (get.hidden) return;
+      if (get.hidden || autoStarted) return;
+      autoStarted = true;
+      var stage = document.getElementById('stage');
+      stage.hidden = false;
+      fullscreenStage();
+      if (restore && !restore.hidden) {
+        restore.click();
+        return;
+      }
       var started = get.dataset.downloadStarted === '1';
       if (!started) {
         get.dataset.downloadStarted = '1';
-        var wait = setInterval(function () { if (get.hidden && !boot.disabled) { clearInterval(wait); boot.click(); } }, 150);
+        var wait = setInterval(function () {
+          if (get.hidden && !boot.disabled) { clearInterval(wait); boot.click(); }
+        }, 150);
         setTimeout(function () { clearInterval(wait); }, 180000);
       }
     }, true);
     return true;
   }
+
+  function autoRestoreWhenReady() {
+    if (autoStarted) return;
+    var card = document.querySelector('#systems .card');
+    if (!card) return;
+    var get = card.querySelector('[data-act="get"]'), boot = card.querySelector('[data-act="boot"]'), restore = card.querySelector('[data-act="restore"]');
+    if (!get || !boot || !get.hidden || boot.disabled) return;
+    autoStarted = true;
+    if (restore && !restore.hidden) restore.click(); else boot.click();
+  }
+
+  function closeNow() {
+    var close = document.getElementById('close');
+    if (close) close.click();
+  }
+
+  function doubleQ(e) {
+    if (document.getElementById('stage').hidden || (e.key !== 'q' && e.key !== 'Q')) return;
+    var now = Date.now();
+    if (now - lastQ <= DOUBLE_Q_MS) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      lastQ = 0;
+      /* El guardado automático ya mantiene el progreso. Damos un último intento
+         de guardar antes de apagar para minimizar la pérdida de los últimos cambios. */
+      var save = document.getElementById('save');
+      if (save) save.click();
+      setTimeout(closeNow, 1500);
+    } else {
+      lastQ = now;
+    }
+  }
+
   function holdEsc(e) {
     if (e.key !== 'Escape' || document.getElementById('stage').hidden) return;
     e.preventDefault(); e.stopImmediatePropagation();
-    if (exitTimer === null) exitTimer = setTimeout(function () { exitTimer = null; var close = document.getElementById('close'); if (close) close.click(); }, EXIT_HOLD_MS);
+    if (exitTimer === null) exitTimer = setTimeout(function () { exitTimer = null; closeNow(); }, EXIT_HOLD_MS);
   }
   function releaseEsc(e) {
     if (e.key !== 'Escape') return;
     e.preventDefault(); e.stopImmediatePropagation();
     if (exitTimer !== null) { clearTimeout(exitTimer); exitTimer = null; }
   }
+
+  document.addEventListener('keydown', doubleQ, true);
   document.addEventListener('keydown', holdEsc, true);
   document.addEventListener('keyup', releaseEsc, true);
-  var tries = 0, timer = setInterval(function () { if (setupKolibriButton() || ++tries > 100) clearInterval(timer); }, 50);
+
+  /* Consentimiento: usamos cookie para la preferencia, pero el progreso grande
+     permanece en IndexedDB/Cache Storage, no dentro de una cookie. */
+  function hasConsent() {
+    return document.cookie.indexOf('kolibri_storage_consent=1') !== -1 || localStorage.getItem('kolibri_storage_consent') === '1';
+  }
+  var consent = document.getElementById('consent');
+  if (!hasConsent()) consent.hidden = false;
+  document.getElementById('accept-consent').addEventListener('click', function () {
+    try { document.cookie = 'kolibri_storage_consent=1; max-age=31536000; path=/; SameSite=Lax'; } catch (_) {}
+    try { localStorage.setItem('kolibri_storage_consent', '1'); } catch (_) {}
+    consent.hidden = true;
+  });
+
+  /* Guardado automático cada 15 s. El estado completo de v86 se conserva en
+     IndexedDB y se restaura al volver a abrir la web en el mismo dispositivo. */
+  function startAutoSave() {
+    if (saveTimer) return;
+    saveTimer = setInterval(function () {
+      var save = document.getElementById('save'), stage = document.getElementById('stage');
+      if (save && stage && !stage.hidden && !save.disabled && window.emulator) save.click();
+    }, 15000);
+  }
+  startAutoSave();
+
+  var tries = 0;
+  var timer = setInterval(function () {
+    var ready = setupKolibriButton();
+    autoRestoreWhenReady();
+    if (ready || ++tries > 200) clearInterval(timer);
+  }, 100);
 })();
 </script>
 </body>
